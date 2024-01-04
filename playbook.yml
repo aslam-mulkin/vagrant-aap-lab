@@ -1,0 +1,71 @@
+---
+- name: Configure Server
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Set root password #set root password to vagrant
+      user:
+        name: root
+        password: "{{ root_password_hash }}"
+
+    - name: Generate SSH key pair for root
+      ansible.builtin.openssh_keypair:
+        path: /root/.ssh/id_rsa
+        force: yes
+
+    - name: Edit /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item.ip }}   {{ item.hostname }}.lab.example.com {{ item.hostname }}"
+      with_items:
+        - { ip: "192.168.56.10", hostname: "hybrid" }
+        - { ip: "192.168.56.11", hostname: "pah" }
+        - { ip: "192.168.56.12", hostname: "db" }
+
+    - name: Ensure specific lines in /etc/ssh/sshd_config
+      ansible.builtin.replace:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        replace: "{{ item.replace }}"
+      loop:
+        - { regexp: '^PasswordAuthentication .*', replace: 'PasswordAuthentication yes' }
+        - { regexp: '^StrictHostKeyChecking .*', replace: 'StrictHostKeyChecking no' }
+      notify:
+        - restart sshd
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.systemd_service:
+        name: sshd
+        state: restarted
+
+- name: Configure hybrid
+  hosts: hybrid
+  become: yes
+
+  tasks:
+    - name: Copy AAP Install bundle to VM
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: /home/vagrant/
+      with_fileglob:
+        - "ansible*.tar.gz"
+
+    - name: Install sshpass
+      ansible.builtin.dnf:
+        name: sshpass
+        state: present
+
+    - name: Install ansible
+      ansible.builtin.dnf:
+        name: ansible
+        state: present
+
+    - name: Disable StrictHostKeyChecking
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/ssh_config
+        regexp: '^StrictHostKeyChecking'
+        line: 'StrictHostKeyChecking no'
+
+    
